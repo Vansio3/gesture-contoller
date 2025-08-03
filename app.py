@@ -15,7 +15,9 @@ hands = mp_hands.Hands(max_num_hands=2, min_detection_confidence=0.7, min_tracki
 mp_drawing = mp.solutions.drawing_utils
 screen_width, screen_height = pyautogui.size()
 cap = cv2.VideoCapture(0)
-INPUT_FRAME_MARGIN = 0.2
+INPUT_FRAME_MARGIN = 0.3
+VERTICAL_TOP_MARGIN = 0.4
+VERTICAL_BOTTOM_MARGIN = 0.8
 
 # --- Filter and precision settings ---
 # --- MODIFIED: BALANCED SETTINGS ---
@@ -30,7 +32,7 @@ y_history = deque(maxlen=AVERAGING_WINDOW)
 
 # --- Right-Hand Click Logic Variables ---
 last_mouse_x, last_mouse_y = 0, 0
-CLICK_THRESHOLD = 15
+CLICK_THRESHOLD = 20
 CLICK_COLOR_IDLE = (0, 255, 0)      # Green
 CLICK_COLOR_PRESSED = (0, 0, 255)   # Blue
 CLICK_COLOR_COOLDOWN = (0, 0, 255)  # Red for the control point
@@ -130,7 +132,7 @@ while cap.isOpened():
             thumb_tip = right_hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
 
             raw_target_x = np.interp(wrist_landmark.x, [INPUT_FRAME_MARGIN, 1 - INPUT_FRAME_MARGIN], [0, screen_width])
-            raw_target_y = np.interp(wrist_landmark.y, [INPUT_FRAME_MARGIN, 1 - INPUT_FRAME_MARGIN], [0, screen_height])
+            raw_target_y = np.interp(wrist_landmark.y, [VERTICAL_TOP_MARGIN, VERTICAL_BOTTOM_MARGIN], [0, screen_height])
             x_history.append(raw_target_x); y_history.append(raw_target_y)
             avg_x = sum(x_history) / len(x_history); avg_y = sum(y_history) / len(y_history)
             filtered_x = x_filter(current_time, avg_x); filtered_y = y_filter(current_time, avg_y)
