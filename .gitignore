@@ -1,2 +1,6 @@
-.venv
-__pychache__
+.venv/
+venv/
+__pycache__/
+dist/
+build/
+gesture-controller.spec
