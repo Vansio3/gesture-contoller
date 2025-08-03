@@ -15,9 +15,16 @@ hands = mp_hands.Hands(max_num_hands=2, min_detection_confidence=0.7, min_tracki
 mp_drawing = mp.solutions.drawing_utils
 screen_width, screen_height = pyautogui.size()
 cap = cv2.VideoCapture(0)
-INPUT_FRAME_MARGIN = 0.3
-VERTICAL_TOP_MARGIN = 0.4
-VERTICAL_BOTTOM_MARGIN = 0.8
+
+# --- Gesture area mapping ---
+# Horizontal mapping 
+HORIZONTAL_INPUT_START = 0.5  # Corresponds to the left edge of the screen
+HORIZONTAL_INPUT_END = 0.9    # Corresponds to the right edge of the screen
+
+# Vertical mapping 
+VERTICAL_TOP_MARGIN = 0.5
+VERTICAL_BOTTOM_MARGIN = 0.9
+
 
 # --- Filter and precision settings ---
 config = {'min_cutoff': 0.015, 'beta': 2.0}
@@ -68,8 +75,8 @@ CTRL_ENTER_COLOR_ACTIVE = (255, 0, 255)
 is_paused = False
 PAUSE_COOLDOWN = 2.0
 last_pause_toggle_time = 0
-PAUSE_HOLD_DURATION = 2.0  # MODIFIED: Hold for 2 seconds
-pause_gesture_start_time = None # MODIFIED: Tracks when the gesture hold starts
+PAUSE_HOLD_DURATION = 2.0
+pause_gesture_start_time = None
 
 def are_all_fingers_extended(hand_landmarks):
     if not hand_landmarks:
@@ -115,7 +122,7 @@ while cap.isOpened():
             elif handedness == "Left":
                 left_hand_landmarks = hand_landmarks_iter
 
-    # --- PAUSE/UNPAUSE LOGIC (MODIFIED) ---
+    # --- PAUSE/UNPAUSE LOGIC ---
     is_pause_gesture_active = False
     if left_hand_landmarks:
         wrist_x = left_hand_landmarks.landmark[mp_hands.HandLandmark.WRIST].x
@@ -131,11 +138,10 @@ while cap.isOpened():
 
         elapsed_hold_time = current_time - pause_gesture_start_time
         
-        # --- Visual Feedback for holding ---
         wrist_pixel = (int(left_hand_landmarks.landmark[mp_hands.HandLandmark.WRIST].x * image_width),
                        int(left_hand_landmarks.landmark[mp_hands.HandLandmark.WRIST].y * image_height))
         progress = min(elapsed_hold_time / PAUSE_HOLD_DURATION, 1.0)
-        cv2.ellipse(image, wrist_pixel, (30, 30), -90, 0, 360 * progress, (0, 255, 255), 4) # Yellow progress circle
+        cv2.ellipse(image, wrist_pixel, (30, 30), -90, 0, 360 * progress, (0, 255, 255), 4)
         status_text = "Pausing..." if not is_paused else "Unpausing..."
         cv2.putText(image, status_text, (wrist_pixel[0] - 60, wrist_pixel[1] - 40), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
@@ -191,8 +197,10 @@ while cap.isOpened():
         index_finger_tip = right_hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
         thumb_tip = right_hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
 
-        raw_target_x = np.interp(wrist_landmark.x, [INPUT_FRAME_MARGIN, 1 - INPUT_FRAME_MARGIN], [0, screen_width])
+        # --- MODIFIED: Use new horizontal variables for interpolation ---
+        raw_target_x = np.interp(wrist_landmark.x, [HORIZONTAL_INPUT_START, HORIZONTAL_INPUT_END], [0, screen_width])
         raw_target_y = np.interp(wrist_landmark.y, [VERTICAL_TOP_MARGIN, VERTICAL_BOTTOM_MARGIN], [0, screen_height])
+        
         x_history.append(raw_target_x); y_history.append(raw_target_y)
         avg_x = sum(x_history) / len(x_history); avg_y = sum(y_history) / len(y_history)
         filtered_x = x_filter(current_time, avg_x); filtered_y = y_filter(current_time, avg_y)
