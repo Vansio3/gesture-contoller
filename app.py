@@ -10,12 +10,12 @@ pyautogui.FAILSAFE = False
 
 # --- (Initialization and variables) ---
 mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(max_num_hands=2, min_detection_confidence=0.7, min_tracking_confidence=0.7)
+# --- MODIFICATION: Set model_complexity to 0 for faster performance ---
+hands = mp_hands.Hands(model_complexity=0, max_num_hands=2, min_detection_confidence=0.7, min_tracking_confidence=0.7)
 mp_drawing = mp.solutions.drawing_utils
 screen_width, screen_height = pyautogui.size()
 cap = cv2.VideoCapture(0)
 
-# --- MODIFICATION: Set a lower resolution for faster processing ---
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
@@ -25,17 +25,18 @@ HORIZONTAL_INPUT_END = 0.9
 VERTICAL_TOP_MARGIN = 0.5
 VERTICAL_BOTTOM_MARGIN = 0.9
 
-# --- MODIFICATION: Tuned Filter and precision settings ---
-config = {'min_cutoff': 0.03, 'beta': 4.0} # Increased min_cutoff to reduce lag, increased beta for responsiveness
+# --- MODIFICATION: Retuned filter for higher responsiveness ---
+# Increased min_cutoff to reduce lag, and slightly increased beta to adapt faster.
+config = {'min_cutoff': 1.0, 'beta': 5.0} 
 x_filter = OneEuroFilter(time.time(), 0, min_cutoff=config['min_cutoff'], beta=config['beta'])
 y_filter = OneEuroFilter(time.time(), 0, min_cutoff=config['min_cutoff'], beta=config['beta'])
-DEAD_ZONE_RADIUS = 7.0 # Increased dead zone to reduce jitter when still
+DEAD_ZONE_RADIUS = 7.0 
 
-# --- MODIFICATION: Removed the redundant deque averaging window ---
-# x_history and y_history have been removed.
-
-# --- MODIFICATION: Add a toggle for debug visuals ---
 show_debug_visuals = True 
+
+# --- MODIFICATION: Add variables for FPS calculation ---
+prev_time = 0
+current_time = 0
 
 # --- (Rest of your variable initializations remain the same) ---
 # --- Right-Hand Click Logic Variables ---
@@ -95,67 +96,44 @@ def are_all_fingers_extended(hand_landmarks):
             return False
     return True
 
-# --- MODIFICATION: Add new helper functions for stricter pause detection ---
 def is_back_of_left_hand_showing(hand_landmarks):
-    """
-    Checks if the back of the left hand is reliably facing the camera.
-    It does this by checking the horizontal ordering of key landmarks.
-    Assumes the input image is flipped horizontally.
-    """
     if not hand_landmarks: return False
-    
     try:
         thumb_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_MCP]
         index_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_MCP]
         pinky_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_MCP]
-
-        # For a left hand in a flipped image, the x-coordinates should be in increasing order
-        # from the thumb side to the pinky side.
         return thumb_mcp.x < index_mcp.x and index_mcp.x < pinky_mcp.x
     except (IndexError, KeyError):
-        # In case some landmarks are not detected
         return False
 
 def are_fingers_spread(hand_landmarks):
-    """
-    Checks if the fingers (index, middle, ring) are spread apart.
-    This is determined by comparing the distance between adjacent fingertips
-    to the width of the palm, making the check scale-invariant.
-    """
     if not hand_landmarks: return False
-    
     try:
         index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
         middle_tip = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP]
         ring_tip = hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_TIP]
-        
         index_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_MCP]
         pinky_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_MCP]
-
-        # Calculate palm width as a reference distance
         palm_width = math.dist((index_mcp.x, index_mcp.y), (pinky_mcp.x, pinky_mcp.y))
-        if palm_width < 0.01: return False # Avoid division by zero and unstable calculations
-
-        # Calculate distances between adjacent fingertips
+        if palm_width < 0.01: return False
         dist_index_middle = math.dist((index_tip.x, index_tip.y), (middle_tip.x, middle_tip.y))
         dist_middle_ring = math.dist((middle_tip.x, middle_tip.y), (ring_tip.x, ring_tip.y))
-
-        # Check that the distance between key fingers is a significant fraction of the palm width.
         SPREAD_THRESHOLD_RATIO = 0.45 
-        
         is_spread = (dist_index_middle / palm_width > SPREAD_THRESHOLD_RATIO and
                      dist_middle_ring / palm_width > SPREAD_THRESHOLD_RATIO)
-        
         return is_spread
     except (IndexError, KeyError):
         return False
-
 
 while cap.isOpened():
     success, image = cap.read()
     if not success: continue
 
+    # --- MODIFICATION: Calculate and display FPS ---
     current_time = time.time()
+    fps = 1 / (current_time - prev_time)
+    prev_time = current_time
+    
     image = cv2.cvtColor(cv2.flip(image, 1), cv2.COLOR_BGR2RGB)
     image.flags.writeable = False
     results = hands.process(image)
@@ -175,13 +153,9 @@ while cap.isOpened():
     # --- PAUSE/UNPAUSE LOGIC ---
     is_pause_gesture_active = False
     if left_hand_landmarks:
-        # --- MODIFICATION: Stricter pause gesture detection ---
-        # To reduce false positives, the pause gesture now requires the back of the hand to be
-        # clearly facing the camera, all fingers extended, and the fingers spread apart.
         back_is_showing = is_back_of_left_hand_showing(left_hand_landmarks)
         fingers_extended = are_all_fingers_extended(left_hand_landmarks)
         fingers_spread = are_fingers_spread(left_hand_landmarks)
-
         if back_is_showing and fingers_extended and fingers_spread:
             is_pause_gesture_active = True
 
@@ -189,7 +163,6 @@ while cap.isOpened():
     if is_pause_gesture_active and can_initiate_pause:
         if pause_gesture_start_time is None: pause_gesture_start_time = current_time
         elapsed_hold_time = current_time - pause_gesture_start_time
-        
         if show_debug_visuals:
             wrist_pixel = (int(left_hand_landmarks.landmark[mp_hands.HandLandmark.WRIST].x * image_width),
                            int(left_hand_landmarks.landmark[mp_hands.HandLandmark.WRIST].y * image_height))
@@ -198,7 +171,6 @@ while cap.isOpened():
             status_text = "Pausing..." if not is_paused else "Unpausing..."
             cv2.putText(image, status_text, (wrist_pixel[0] - 60, wrist_pixel[1] - 40), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-
         if elapsed_hold_time >= PAUSE_HOLD_DURATION:
             is_paused = not is_paused
             last_pause_toggle_time = current_time
@@ -220,8 +192,6 @@ while cap.isOpened():
     if right_hand_landmarks and left_hand_landmarks:
         right_index_tip = right_hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
         right_index_pixel = (int(right_index_tip.x * image_width), int(right_index_tip.y * image_height))
-
-        # Voice Typing Gesture
         left_pinky_tip = left_hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP]
         left_pinky_pixel = (int(left_pinky_tip.x * image_width), int(left_pinky_tip.y * image_height))
         voice_dist = math.dist(right_index_pixel, left_pinky_pixel)
@@ -233,8 +203,6 @@ while cap.isOpened():
         else:
             voice_line_color = VOICE_TYPING_COLOR_IDLE
         if show_debug_visuals: cv2.line(image, right_index_pixel, left_pinky_pixel, voice_line_color, 2)
-
-        # Ctrl+Enter Gesture
         left_thumb_tip = left_hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
         left_thumb_pixel = (int(left_thumb_tip.x * image_width), int(left_thumb_tip.y * image_height))
         ctrl_enter_dist = math.dist(right_index_pixel, left_thumb_pixel)
@@ -247,17 +215,15 @@ while cap.isOpened():
             ctrl_enter_line_color = CTRL_ENTER_COLOR_IDLE
         if show_debug_visuals: cv2.line(image, right_index_pixel, left_thumb_pixel, ctrl_enter_line_color, 2)
 
-
     # --- RIGHT HAND LOGIC (Cursor and Click) ---
     if right_hand_landmarks:
         is_right_hand_present_this_frame = True
         if right_hand_detected_time is None: right_hand_detected_time = current_time
-        
         wrist_landmark = right_hand_landmarks.landmark[mp_hands.HandLandmark.WRIST]
-        
-        # --- MODIFICATION: Feed raw interpolated values directly to the filter ---
         raw_target_x = np.interp(wrist_landmark.x, [HORIZONTAL_INPUT_START, HORIZONTAL_INPUT_END], [0, screen_width])
         raw_target_y = np.interp(wrist_landmark.y, [VERTICAL_TOP_MARGIN, VERTICAL_BOTTOM_MARGIN], [0, screen_height])
+        
+        # --- MODIFICATION: The timestamp passed to the filter MUST be the one from the main loop start ---
         filtered_x = x_filter(current_time, raw_target_x)
         filtered_y = y_filter(current_time, raw_target_y)
 
@@ -265,8 +231,6 @@ while cap.isOpened():
         if move_distance > DEAD_ZONE_RADIUS:
             pyautogui.moveTo(filtered_x, filtered_y)
             last_mouse_x, last_mouse_y = filtered_x, filtered_y
-
-        # --- Click Logic (mostly unchanged) ---
         index_finger_tip = right_hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
         thumb_tip = right_hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
         index_pip = right_hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_PIP]
@@ -277,11 +241,9 @@ while cap.isOpened():
         is_gesture_intentional = is_index_extended and is_middle_extended
         is_on_cooldown = (current_time - right_hand_detected_time) < CLICK_COOLDOWN
         is_moving_too_fast = move_distance > CLICK_DISABLE_MOVE_THRESHOLD
-        
         index_pixel_x = int(index_finger_tip.x * image_width); index_pixel_y = int(index_finger_tip.y * image_height)
         thumb_pixel_x = int(thumb_tip.x * image_width); thumb_pixel_y = int(thumb_tip.y * image_height)
         click_distance = math.dist((thumb_pixel_x, thumb_pixel_y), (index_pixel_x, index_pixel_y))
-        
         line_color = CLICK_COLOR_IDLE
         if click_distance < CLICK_THRESHOLD:
             if is_gesture_intentional and not is_on_cooldown and not is_moving_too_fast:
@@ -291,7 +253,6 @@ while cap.isOpened():
                 line_color = CLICK_COLOR_DISABLED; is_clicking = False
         else:
             is_clicking = False
-        
         if show_debug_visuals:
             cv2.line(image, (thumb_pixel_x, thumb_pixel_y), (index_pixel_x, index_pixel_y), line_color, 2)
             wrist_pixel_x = int(wrist_landmark.x * image_width); wrist_pixel_y = int(wrist_landmark.y * image_height)
@@ -305,21 +266,17 @@ while cap.isOpened():
         thumb_tip_left = left_hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
         index_pixel_x_left = int(index_tip_left.x * image_width); index_pixel_y_left = int(index_tip_left.y * image_height)
         thumb_pixel_x_left = int(thumb_tip_left.x * image_width); thumb_pixel_y_left = int(thumb_tip_left.y * image_height)
-        
         scroll_distance = math.dist((thumb_pixel_x_left, thumb_pixel_y_left), (index_pixel_x_left, index_pixel_y_left))
         line_color_left = SCROLL_COLOR_IDLE
-        
         if scroll_distance < SCROLL_THRESHOLD:
             line_color_left = SCROLL_COLOR_ACTIVE
             if scroll_start_y is None: scroll_start_y = index_pixel_y_left
-            
             delta_y = scroll_start_y - index_pixel_y_left
             if abs(delta_y) > SCROLL_DEAD_ZONE:
                 scroll_offset = delta_y - math.copysign(SCROLL_DEAD_ZONE, delta_y)
                 pyautogui.scroll(int(scroll_offset * SCROLL_SENSITIVITY))
         else:
             scroll_start_y = None
-        
         if show_debug_visuals:
             cv2.line(image, (thumb_pixel_x_left, thumb_pixel_y_left), (index_pixel_x_left, index_pixel_y_left), line_color_left, 2)
             if scroll_start_y is not None:
@@ -329,15 +286,17 @@ while cap.isOpened():
     if not is_right_hand_present_this_frame:
         right_hand_detected_time = None
 
+    # --- MODIFICATION: Display FPS on the screen ---
+    if show_debug_visuals:
+        cv2.putText(image, f'FPS: {int(fps)}', (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
     cv2.imshow('Hand Mouse Control', image)
     
     key = cv2.waitKey(5) & 0xFF
     if key == ord('q'):
         break
-    # --- MODIFICATION: Add key listener to toggle debug visuals ---
     elif key == ord('d'):
         show_debug_visuals = not show_debug_visuals
-
 
 cap.release()
 cv2.destroyAllWindows()
