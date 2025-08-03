@@ -23,7 +23,7 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 HORIZONTAL_INPUT_START = 0.5
 HORIZONTAL_INPUT_END = 0.9
 VERTICAL_TOP_MARGIN = 0.5
-VERTICAL_BOTTOM_MARGIN = 0.9
+VERTICAL_BOTTOM_MARGIN = 0.8
 
 # --- MODIFICATION: Retuned filter for higher responsiveness ---
 # Increased min_cutoff to reduce lag, and slightly increased beta to adapt faster.
@@ -41,7 +41,7 @@ current_time = 0
 # --- (Rest of your variable initializations remain the same) ---
 # --- Right-Hand Click Logic Variables ---
 last_mouse_x, last_mouse_y = 0, 0
-CLICK_THRESHOLD = 20
+CLICK_THRESHOLD = 16
 CLICK_COLOR_IDLE = (0, 255, 0)
 CLICK_COLOR_PRESSED = (0, 0, 255)
 CLICK_COLOR_COOLDOWN = (0, 0, 255)
