@@ -95,6 +95,62 @@ def are_all_fingers_extended(hand_landmarks):
             return False
     return True
 
+# --- MODIFICATION: Add new helper functions for stricter pause detection ---
+def is_back_of_left_hand_showing(hand_landmarks):
+    """
+    Checks if the back of the left hand is reliably facing the camera.
+    It does this by checking the horizontal ordering of key landmarks.
+    Assumes the input image is flipped horizontally.
+    """
+    if not hand_landmarks: return False
+    
+    try:
+        thumb_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_MCP]
+        index_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_MCP]
+        pinky_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_MCP]
+
+        # For a left hand in a flipped image, the x-coordinates should be in increasing order
+        # from the thumb side to the pinky side.
+        return thumb_mcp.x < index_mcp.x and index_mcp.x < pinky_mcp.x
+    except (IndexError, KeyError):
+        # In case some landmarks are not detected
+        return False
+
+def are_fingers_spread(hand_landmarks):
+    """
+    Checks if the fingers (index, middle, ring) are spread apart.
+    This is determined by comparing the distance between adjacent fingertips
+    to the width of the palm, making the check scale-invariant.
+    """
+    if not hand_landmarks: return False
+    
+    try:
+        index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
+        middle_tip = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP]
+        ring_tip = hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_TIP]
+        
+        index_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_MCP]
+        pinky_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_MCP]
+
+        # Calculate palm width as a reference distance
+        palm_width = math.dist((index_mcp.x, index_mcp.y), (pinky_mcp.x, pinky_mcp.y))
+        if palm_width < 0.01: return False # Avoid division by zero and unstable calculations
+
+        # Calculate distances between adjacent fingertips
+        dist_index_middle = math.dist((index_tip.x, index_tip.y), (middle_tip.x, middle_tip.y))
+        dist_middle_ring = math.dist((middle_tip.x, middle_tip.y), (ring_tip.x, ring_tip.y))
+
+        # Check that the distance between key fingers is a significant fraction of the palm width.
+        SPREAD_THRESHOLD_RATIO = 0.45 
+        
+        is_spread = (dist_index_middle / palm_width > SPREAD_THRESHOLD_RATIO and
+                     dist_middle_ring / palm_width > SPREAD_THRESHOLD_RATIO)
+        
+        return is_spread
+    except (IndexError, KeyError):
+        return False
+
+
 while cap.isOpened():
     success, image = cap.read()
     if not success: continue
@@ -116,13 +172,17 @@ while cap.isOpened():
             if handedness == "Right": right_hand_landmarks = hand_landmarks_iter
             elif handedness == "Left": left_hand_landmarks = hand_landmarks_iter
 
-    # --- PAUSE/UNPAUSE LOGIC --- (Logic remains the same)
+    # --- PAUSE/UNPAUSE LOGIC ---
     is_pause_gesture_active = False
     if left_hand_landmarks:
-        wrist_x = left_hand_landmarks.landmark[mp_hands.HandLandmark.WRIST].x
-        pinky_mcp_x = left_hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_MCP].x
-        is_back_of_hand = pinky_mcp_x > wrist_x
-        if is_back_of_hand and are_all_fingers_extended(left_hand_landmarks):
+        # --- MODIFICATION: Stricter pause gesture detection ---
+        # To reduce false positives, the pause gesture now requires the back of the hand to be
+        # clearly facing the camera, all fingers extended, and the fingers spread apart.
+        back_is_showing = is_back_of_left_hand_showing(left_hand_landmarks)
+        fingers_extended = are_all_fingers_extended(left_hand_landmarks)
+        fingers_spread = are_fingers_spread(left_hand_landmarks)
+
+        if back_is_showing and fingers_extended and fingers_spread:
             is_pause_gesture_active = True
 
     can_initiate_pause = (current_time - last_pause_toggle_time) > PAUSE_COOLDOWN
