@@ -10,7 +10,6 @@ pyautogui.FAILSAFE = False
 
 # --- (Initialization and variables) ---
 mp_hands = mp.solutions.hands
-# --- MODIFICATION: Set model_complexity to 0 for faster performance ---
 hands = mp_hands.Hands(model_complexity=0, max_num_hands=2, min_detection_confidence=0.7, min_tracking_confidence=0.7)
 mp_drawing = mp.solutions.drawing_utils
 screen_width, screen_height = pyautogui.size()
@@ -20,17 +19,16 @@ cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
 # --- Gesture area mapping ---
-HORIZONTAL_INPUT_START = 0.5
+HORIZONTAL_INPUT_START = 0.4
 HORIZONTAL_INPUT_END = 0.9
 VERTICAL_TOP_MARGIN = 0.5
 VERTICAL_BOTTOM_MARGIN = 0.8
 
-# --- MODIFICATION: Retuned filter for higher responsiveness ---
-# Increased min_cutoff to reduce lag, and slightly increased beta to adapt faster.
-config = {'min_cutoff': 1.0, 'beta': 5.0} 
+# --- MODIFICATION: Retuned filter for better smoothness. ---
+config = {'min_cutoff': 0.8, 'beta': 2.0} 
 x_filter = OneEuroFilter(time.time(), 0, min_cutoff=config['min_cutoff'], beta=config['beta'])
 y_filter = OneEuroFilter(time.time(), 0, min_cutoff=config['min_cutoff'], beta=config['beta'])
-DEAD_ZONE_RADIUS = 7.0 
+DEAD_ZONE_RADIUS = 10.0 
 
 show_debug_visuals = True 
 
@@ -38,16 +36,16 @@ show_debug_visuals = True
 prev_time = 0
 current_time = 0
 
-# --- (Rest of your variable initializations remain the same) ---
 # --- Right-Hand Click Logic Variables ---
 last_mouse_x, last_mouse_y = 0, 0
-CLICK_THRESHOLD = 16
+CLICK_THRESHOLD = 14
 CLICK_COLOR_IDLE = (0, 255, 0)
 CLICK_COLOR_PRESSED = (0, 0, 255)
-CLICK_COLOR_COOLDOWN = (0, 0, 255)
+CLICK_COLOR_COOLDOWN = (0, 0, 255) 
 CLICK_DISABLE_MOVE_THRESHOLD = 7.0
 CLICK_COLOR_DISABLED = (0, 165, 255)
-is_clicking = False
+# --- MODIFICATION: Replaced 'is_clicking' with a state variable for single-click logic ---
+click_state = "released" # Can be "released" or "pinched"
 CLICK_COOLDOWN = 2.0
 right_hand_detected_time = None
 
@@ -129,7 +127,6 @@ while cap.isOpened():
     success, image = cap.read()
     if not success: continue
 
-    # --- MODIFICATION: Calculate and display FPS ---
     current_time = time.time()
     fps = 1 / (current_time - prev_time)
     prev_time = current_time
@@ -223,7 +220,6 @@ while cap.isOpened():
         raw_target_x = np.interp(wrist_landmark.x, [HORIZONTAL_INPUT_START, HORIZONTAL_INPUT_END], [0, screen_width])
         raw_target_y = np.interp(wrist_landmark.y, [VERTICAL_TOP_MARGIN, VERTICAL_BOTTOM_MARGIN], [0, screen_height])
         
-        # --- MODIFICATION: The timestamp passed to the filter MUST be the one from the main loop start ---
         filtered_x = x_filter(current_time, raw_target_x)
         filtered_y = y_filter(current_time, raw_target_y)
 
@@ -238,21 +234,32 @@ while cap.isOpened():
         middle_tip = right_hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP]
         is_index_extended = math.dist((wrist_landmark.x, wrist_landmark.y), (index_finger_tip.x, index_finger_tip.y)) > math.dist((wrist_landmark.x, wrist_landmark.y), (index_pip.x, index_pip.y))
         is_middle_extended = math.dist((wrist_landmark.x, wrist_landmark.y), (middle_tip.x, middle_tip.y)) > math.dist((wrist_landmark.x, wrist_landmark.y), (middle_pip.x, middle_pip.y))
-        is_gesture_intentional = is_index_extended and is_middle_extended
-        is_on_cooldown = (current_time - right_hand_detected_time) < CLICK_COOLDOWN
-        is_moving_too_fast = move_distance > CLICK_DISABLE_MOVE_THRESHOLD
+        
         index_pixel_x = int(index_finger_tip.x * image_width); index_pixel_y = int(index_finger_tip.y * image_height)
         thumb_pixel_x = int(thumb_tip.x * image_width); thumb_pixel_y = int(thumb_tip.y * image_height)
         click_distance = math.dist((thumb_pixel_x, thumb_pixel_y), (index_pixel_x, index_pixel_y))
+
+        # --- MODIFICATION: Implemented state-based click logic for single clicks ---
+        is_gesture_intentional = is_index_extended and is_middle_extended
+        is_on_cooldown = (current_time - right_hand_detected_time) < CLICK_COOLDOWN
+        is_moving_too_fast = move_distance > CLICK_DISABLE_MOVE_THRESHOLD
+        can_perform_click = is_gesture_intentional and not is_on_cooldown and not is_moving_too_fast
+        
         line_color = CLICK_COLOR_IDLE
+
         if click_distance < CLICK_THRESHOLD:
-            if is_gesture_intentional and not is_on_cooldown and not is_moving_too_fast:
+            if click_state == "released" and can_perform_click:
+                pyautogui.click()
+                click_state = "pinched"
                 line_color = CLICK_COLOR_PRESSED
-                if not is_clicking: pyautogui.click(); is_clicking = True
+            elif click_state == "pinched":
+                line_color = CLICK_COLOR_COOLDOWN # Indicates the pinch is being held
             else:
-                line_color = CLICK_COLOR_DISABLED; is_clicking = False
+                line_color = CLICK_COLOR_DISABLED # Click attempted but conditions not met
         else:
-            is_clicking = False
+            click_state = "released"
+            line_color = CLICK_COLOR_IDLE
+        
         if show_debug_visuals:
             cv2.line(image, (thumb_pixel_x, thumb_pixel_y), (index_pixel_x, index_pixel_y), line_color, 2)
             wrist_pixel_x = int(wrist_landmark.x * image_width); wrist_pixel_y = int(wrist_landmark.y * image_height)
@@ -286,7 +293,6 @@ while cap.isOpened():
     if not is_right_hand_present_this_frame:
         right_hand_detected_time = None
 
-    # --- MODIFICATION: Display FPS on the screen ---
     if show_debug_visuals:
         cv2.putText(image, f'FPS: {int(fps)}', (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
