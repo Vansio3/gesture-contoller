@@ -165,19 +165,15 @@ gesture-controller/
 ├── README.md             # This file
 └── build/                # Build artifacts
 ```
+## 📄 License
 
-## 🤝 Contributing
-
-Contributions are welcome! Areas for improvement:
+This project is open source. Feel free to use, modify, and distribute.
+Areas for improvement:
 - Additional gesture recognition
 - Performance optimization
 - Cross-platform compatibility
 - New control schemes
 - Better filtering algorithms
-
-## 📄 License
-
-This project is open source. Feel free to use, modify, and distribute.
 
 ## ⚠️ Disclaimer
 
